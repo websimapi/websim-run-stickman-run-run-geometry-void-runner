@@ -17,8 +17,6 @@ export class Character {
         
         // Game State
         this.time = 0;
-        this.lane = 0;
-        this.laneWidth = 3;
         this.targetX = 0;
         
         // Physics
@@ -114,11 +112,6 @@ export class Character {
             if (this.jumpCount > 1) sound.playbackRate = 1.25;
             sound.play().catch(()=>{});
         }
-    }
-
-    moveLane(dir) {
-        this.lane = Math.max(-1, Math.min(1, this.lane + dir));
-        this.targetX = this.lane * this.laneWidth;
     }
 
     update(dt, platforms, isRunning) {

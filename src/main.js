@@ -52,59 +52,71 @@ function startGame() {
     bgm.play().catch(()=>{});
 }
 
-function handleInput(x) {
-    if (isGameOver) return;
-    if (!isRunning) {
-        startGame();
-        return;
-    }
-
-    const w = window.innerWidth;
-    if (x < w * 0.3) {
-        character.moveLane(-1);
-    } else if (x > w * 0.7) {
-        character.moveLane(1);
-    } else {
-        character.jump();
-    }
-}
-
-// Input Events
+// Input State
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
+const keys = { left: false, right: false };
+
+function updatePlayerTarget(clientX, clientY) {
+    mouse.x = (clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+    
+    // Create a plane at the character's Z depth to map mouse X to world X accurately
+    // Plane normal (0,0,1), constant is distance from origin (which is -character.position.z)
+    const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), -character.position.z);
+    raycaster.setFromCamera(mouse, camera);
+    
+    const target = new THREE.Vector3();
+    raycaster.ray.intersectPlane(planeZ, target);
+    
+    if (target) {
+        character.targetX = target.x;
+    }
+}
 
 window.addEventListener('pointerdown', (e) => {
     if (e.target.tagName === 'BUTTON') return;
 
-    // Raycast to check if tapping character directly
+    // Check tap on character
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-    
     raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObject(character.mesh, true);
     
+    // Check character intersection for jump
+    const intersects = raycaster.intersectObject(character.mesh, true);
     if (intersects.length > 0) {
-        if (!isRunning) {
-            startGame();
-        } else {
-            character.jump();
-        }
+        if (!isRunning) startGame();
+        else character.jump();
         return;
     }
 
-    handleInput(e.clientX);
+    if (!isRunning) {
+        startGame();
+    }
+    
+    // Immediate move
+    updatePlayerTarget(e.clientX, e.clientY);
+});
+
+window.addEventListener('pointermove', (e) => {
+    if (!isRunning || isGameOver) return;
+    updatePlayerTarget(e.clientX, e.clientY);
 });
 
 window.addEventListener('keydown', (e) => {
     if (isGameOver) return;
     if (!isRunning) {
         if(['Space','ArrowUp','KeyW','ArrowLeft','ArrowRight'].includes(e.code)) startGame();
-        return;
     }
     
-    if (e.code === 'ArrowLeft' || e.code === 'KeyA') character.moveLane(-1);
-    else if (e.code === 'ArrowRight' || e.code === 'KeyD') character.moveLane(1);
-    else if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') character.jump();
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') character.jump();
+});
+
+window.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
 });
 
 window.addEventListener('resize', () => {
@@ -118,7 +130,6 @@ restartBtn.addEventListener('click', () => {
     isRunning = false;
     character.position.set(0, 0, 0);
     character.velocity.set(0, 0, 0);
-    character.lane = 0;
     character.targetX = 0;
     character.runSpeed = 16;
     character.isGrounded = false;
@@ -134,6 +145,11 @@ function animate() {
     requestAnimationFrame(animate);
     
     const dt = Math.min(clock.getDelta(), 0.1);
+
+    if (isRunning && !isGameOver) {
+        if (keys.left) character.targetX -= 30 * dt;
+        if (keys.right) character.targetX += 30 * dt;
+    }
     
     const alive = character.update(dt, level.platforms, isRunning);
     level.update(character.position.z);
@@ -145,7 +161,7 @@ function animate() {
     camera.position.z = camZ;
     camera.position.y += (camY - camera.position.y) * 5 * dt;
     camera.position.x += (character.position.x * 0.4 - camera.position.x) * 4 * dt;
-    camera.rotation.z = -character.lane * 0.05; // Slight tilt
+    camera.rotation.z = -character.position.x * 0.02; // Slight tilt
     camera.lookAt(0, character.position.y, character.position.z - 8);
     
     // Light
