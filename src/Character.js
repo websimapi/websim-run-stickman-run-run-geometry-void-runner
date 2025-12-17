@@ -199,50 +199,73 @@ export class Character {
 
     animateMenu(dt) {
         this.menuTime += dt;
-        const cycleDuration = 8.0;
-        const t = this.menuTime % cycleDuration;
         
-        // Cycle: 
-        // 0-1.5s: Idle
-        // 1.5-2.0s: Small Jump/Bounce
-        // 2.0-4.0s: Idle
-        // 4.0-7.0s: Run in Place
-        // 7.0-8.0s: Transition to Idle
-
-        if (t < 1.5) {
-            // Idle
-            this.time += dt * 2;
-            this.animateIdle();
-            this.position.y = 0;
-        } else if (t < 2.0) {
-            // Bounce
-            const bounceT = (t - 1.5) / 0.5; // 0 to 1
-            this.position.y = Math.sin(bounceT * Math.PI) * 0.5;
-            
-            // Arms up a bit
-            this.parts.armL.upper.rotation.x = -2.0;
-            this.parts.armR.upper.rotation.x = -2.0;
-            this.parts.legL.upper.rotation.x = 0.5;
-            this.parts.legR.upper.rotation.x = -0.5;
-        } else if (t < 4.0) {
-            // Idle
-            this.time += dt * 2;
-            this.animateIdle();
-            this.position.y = 0;
-        } else if (t < 7.0) {
-            // Run in Place
-            this.time += dt * 15; // Fast run anim
-            this.animateRun();
-            this.position.y = 0;
-            
-            // Correct run anim for "in place" (remove lean if needed, but lean looks cool)
-            this.mesh.rotation.x = 0.1; 
-        } else {
-            // Transition back to idle
-            this.time += dt * 2;
-            this.animateIdle();
-            this.position.y = 0;
+        // Smooth cycle: Idle -> Warmup -> Run -> CoolDown
+        const cycle = 8;
+        const t = this.menuTime % cycle;
+        
+        // Calculate transition factor (0 = idle, 1 = run)
+        // using a smoothstep curve for fluid blending
+        let runFactor = 0;
+        if (t > 2.5 && t < 6.5) {
+            if (t < 3.5) runFactor = (t - 2.5); // 0 to 1 over 1s
+            else if (t > 5.5) runFactor = (6.5 - t); // 1 to 0 over 1s
+            else runFactor = 1;
         }
+        // Apply easing to make it less linear
+        runFactor = runFactor * runFactor * (3 - 2 * runFactor);
+
+        // Update internal animation time based on activity level
+        // Idle is slow (2x), Run is fast (based on runSpeed)
+        const speed = 2 * (1 - runFactor) + (this.runSpeed * 0.8) * runFactor;
+        this.time += dt * speed;
+        
+        const time = this.time;
+        
+        // --- Calculate & Blend Rotations ---
+        
+        // Hips Y (Bobbing height)
+        const idleHipsY = 1.0 + Math.sin(time * 0.5) * 0.03;
+        const runHipsY = 1.0 + Math.abs(Math.sin(time)) * 0.1;
+        this.parts.hips.position.y = THREE.MathUtils.lerp(idleHipsY, runHipsY, runFactor);
+
+        // Body Lean
+        this.mesh.rotation.x = THREE.MathUtils.lerp(0, 0.2, runFactor);
+
+        // Arms
+        // Idle Arm Swing
+        const iArmL = Math.sin(time * 0.5) * 0.05;
+        const iArmR = -Math.sin(time * 0.5) * 0.05;
+        // Run Arm Swing
+        const rArmL = Math.sin(time + Math.PI) * 1.0;
+        const rArmR = Math.sin(time) * 1.0;
+        
+        this.parts.armL.upper.rotation.x = THREE.MathUtils.lerp(iArmL, rArmL, runFactor);
+        this.parts.armR.upper.rotation.x = THREE.MathUtils.lerp(iArmR, rArmR, runFactor);
+        
+        // Forearms
+        this.parts.armL.lower.rotation.x = THREE.MathUtils.lerp(-0.1, -1.5, runFactor);
+        this.parts.armR.lower.rotation.x = THREE.MathUtils.lerp(-0.1, -1.5, runFactor);
+
+        // Legs
+        // Idle Legs (Stand still)
+        const iLeg = 0;
+        // Run Legs
+        const rLegL = Math.sin(time) * 1.2;
+        const rLegR = Math.sin(time + Math.PI) * 1.2;
+        
+        this.parts.legL.upper.rotation.x = THREE.MathUtils.lerp(iLeg, rLegL, runFactor);
+        this.parts.legR.upper.rotation.x = THREE.MathUtils.lerp(iLeg, rLegR, runFactor);
+        
+        // Knees
+        const rKneeL = Math.max(0, Math.sin(time - 1.5) * 2.2);
+        const rKneeR = Math.max(0, Math.sin(time + Math.PI - 1.5) * 2.2);
+        
+        this.parts.legL.lower.rotation.x = THREE.MathUtils.lerp(0, rKneeL, runFactor);
+        this.parts.legR.lower.rotation.x = THREE.MathUtils.lerp(0, rKneeR, runFactor);
+
+        // Ensure grounded Y
+        this.position.y = 0;
     }
 
     checkCollisions(platforms) {

@@ -294,6 +294,9 @@ function animate() {
         camera.position.y += (targetCamY - camera.position.y) * 2 * dt;
         
         camera.lookAt(0, 0.9, 0); 
+        
+        // Interactive Rotation
+        character.mesh.rotation.y = Math.PI + (mouse.x * 0.3);
     } else {
         targetCamZ = character.position.z + 8;
         targetCamY = character.position.y + 4;
