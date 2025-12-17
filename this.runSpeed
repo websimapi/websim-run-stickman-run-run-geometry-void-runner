@@ -1,0 +1,6 @@
+// inside Character.update
+if (isRunning) {
+   this.runSpeed += dt * 0.1; 
+   ...
+}
+
