@@ -170,12 +170,26 @@ export class Character {
         const feetY = this.position.y; 
         const feetZ = this.position.z;
         const feetX = this.position.x;
+        const headY = feetY + 1.6;
 
         for (const p of platforms) {
+            // Horizontal bounds check
             if (feetZ < p.z + p.depth/2 && feetZ > p.z - p.depth/2) {
                 if (feetX > p.x - p.width/2 && feetX < p.x + p.width/2) {
+                    
                     const surfaceY = p.y + 0.5;
-                    // Check landing
+                    const bottomY = p.y - 0.5;
+
+                    // 1. Ceiling Collision
+                    if (this.velocity.y > 0) {
+                        if (headY >= bottomY && headY < p.y) {
+                            this.velocity.y = 0;
+                            this.position.y = bottomY - 1.6 - 0.05; // Bounce off
+                            return false;
+                        }
+                    }
+
+                    // 2. Floor Collision
                     if (feetY <= surfaceY && feetY > surfaceY - 1.2) {
                         if (this.velocity.y <= 0) {
                             this.velocity.y = 0;
@@ -192,45 +206,76 @@ export class Character {
     }
 
     checkLedgeGrab(platforms) {
+        if (this.velocity.y > 0) return; // Only grab when falling
+
         const feetY = this.position.y;
         const feetZ = this.position.z;
         const feetX = this.position.x;
         
         for (const p of platforms) {
+            const surfaceY = p.y + 0.5;
+            const drop = surfaceY - feetY;
+
+            // Height check common for all grabs
+            if (drop < 1.0 || drop > 2.5) continue;
+
+            // 1. Front Ledge Check
             const pEdgeZ = p.z + p.depth / 2;
-            const distZ = feetZ - pEdgeZ; // Positive means we are "before" the edge (since moving to -Z)
+            const distZ = feetZ - pEdgeZ;
             
-            // Check if close to edge
-            if (distZ > -0.2 && distZ < 1.0) {
-                // Check X Alignment
-                if (feetX > p.x - p.width/2 && feetX < p.x + p.width/2) {
-                    // Check Height (Shoulders/Hands at surface level)
-                    // Surface is at p.y + 0.5
-                    const surfaceY = p.y + 0.5;
-                    const drop = surfaceY - feetY;
-                    
-                    // If feet are 1.2 to 2.5 units below surface (approx body height range)
-                    if (drop > 1.2 && drop < 2.5) {
-                        this.startClimb(surfaceY, pEdgeZ);
-                        return;
-                    }
+            // Must be aligned horizontally for front grab
+            if (feetX > p.x - p.width/2 && feetX < p.x + p.width/2) {
+                if (distZ > -0.2 && distZ < 0.8) {
+                    // Target: move onto platform in Z, keep X
+                    const target = new THREE.Vector3(this.position.x, surfaceY, pEdgeZ - 0.5);
+                    const snap = new THREE.Vector3(this.position.x, this.position.y, pEdgeZ + 0.25);
+                    this.startClimb(target, snap);
+                    return;
+                }
+            }
+
+            // 2. Side Ledge Check
+            // Must be within Z bounds of the platform
+            if (feetZ < p.z + p.depth/2 && feetZ > p.z - p.depth/2) {
+                const leftEdge = p.x - p.width/2;
+                const rightEdge = p.x + p.width/2;
+                const grabDist = 0.6; 
+
+                // Left Side (Platform is to the right of player)
+                // Player X < LeftEdge
+                if (feetX < leftEdge && feetX > leftEdge - grabDist) {
+                    // Target: move onto platform (leftEdge + padding)
+                    const target = new THREE.Vector3(leftEdge + 0.4, surfaceY, feetZ - 0.5);
+                    const snap = new THREE.Vector3(leftEdge - 0.2, this.position.y, feetZ);
+                    this.startClimb(target, snap);
+                    return;
+                }
+
+                // Right Side (Platform is to the left of player)
+                // Player X > RightEdge
+                if (feetX > rightEdge && feetX < rightEdge + grabDist) {
+                    const target = new THREE.Vector3(rightEdge - 0.4, surfaceY, feetZ - 0.5);
+                    const snap = new THREE.Vector3(rightEdge + 0.2, this.position.y, feetZ);
+                    this.startClimb(target, snap);
+                    return;
                 }
             }
         }
     }
 
-    startClimb(surfaceY, edgeZ) {
+    startClimb(targetPos, snapPos) {
         this.isClimbing = true;
         this.climbTime = 0;
         this.velocity.set(0, 0, 0);
         
         this.climbStartPos.copy(this.position);
-        this.climbStartPos.z = edgeZ + 0.25; // Snap to edge
         
-        this.climbTargetPos.copy(this.climbStartPos);
-        this.climbTargetPos.y = surfaceY;
-        this.climbTargetPos.z = edgeZ - 0.5; // Move onto platform
+        if (snapPos) {
+            this.climbStartPos.x = snapPos.x;
+            this.climbStartPos.z = snapPos.z;
+        }
         
+        this.climbTargetPos.copy(targetPos);
         this.mesh.rotation.x = 0; // Reset lean
     }
 
@@ -251,6 +296,8 @@ export class Character {
             this.isGrounded = true;
             this.jumpCount = 0;
             this.position.copy(this.climbTargetPos);
+            // Sync targetX so we don't drift back immediately
+            this.targetX = this.position.x;
         }
     }
 
