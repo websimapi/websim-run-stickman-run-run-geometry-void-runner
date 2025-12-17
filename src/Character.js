@@ -23,8 +23,11 @@ export class Character {
         
         // Physics
         this.gravity = -40;
+        this.baseJumpForce = 15;
         this.jumpForce = 15;
+        this.baseRunSpeed = 16;
         this.runSpeed = 16;
+        this.scale = 1.0;
         
         this.jumpCount = 0;
         this.maxJumps = 2;
@@ -111,6 +114,27 @@ export class Character {
         return { upper: upper.pivot, lower: lower.pivot };
     }
 
+    configure(colorHex, size) {
+        this.scale = size;
+        this.mesh.scale.setScalar(this.scale);
+
+        // Stats Logic
+        // Size 0.9 -> Speed +10%, Jump -10%
+        // Size 1.1 -> Speed -10%, Jump +10%
+        const speedFactor = 1.0 + (1.0 - this.scale);
+        const jumpFactor = this.scale;
+
+        this.runSpeed = this.baseRunSpeed * speedFactor;
+        this.jumpForce = this.baseJumpForce * jumpFactor;
+
+        // Apply Color
+        this.mesh.traverse((child) => {
+            if (child.isMesh && child.geometry.type === 'CapsuleGeometry') {
+                child.material.color.setHex(colorHex);
+            }
+        });
+    }
+
     jump() {
         if (this.isClimbing) return;
 
@@ -170,7 +194,8 @@ export class Character {
         const feetY = this.position.y; 
         const feetZ = this.position.z;
         const feetX = this.position.x;
-        const headY = feetY + 1.6;
+        const height = 1.6 * this.scale;
+        const headY = feetY + height;
 
         for (const p of platforms) {
             // Horizontal bounds check
@@ -184,13 +209,13 @@ export class Character {
                     if (this.velocity.y > 0) {
                         if (headY >= bottomY && headY < p.y) {
                             this.velocity.y = 0;
-                            this.position.y = bottomY - 1.6 - 0.05; // Bounce off
+                            this.position.y = bottomY - height - 0.05; // Bounce off
                             return false;
                         }
                     }
 
                     // 2. Floor Collision
-                    if (feetY <= surfaceY && feetY > surfaceY - 1.2) {
+                    if (feetY <= surfaceY && feetY > surfaceY - (1.2 * this.scale)) {
                         if (this.velocity.y <= 0) {
                             this.velocity.y = 0;
                             this.position.y = surfaceY;
@@ -217,7 +242,7 @@ export class Character {
             const drop = surfaceY - feetY;
 
             // Height check common for all grabs
-            if (drop < 1.0 || drop > 2.5) continue;
+            if (drop < 1.0 * this.scale || drop > 2.5 * this.scale) continue;
 
             // 1. Front Ledge Check
             const pEdgeZ = p.z + p.depth / 2;

@@ -63,21 +63,122 @@
             opacity: 1;
             pointer-events: auto;
         }
+        
+        /* Title Screen */
+        #title-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            z-index: 20;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+        }
+        .content {
+            background: rgba(20, 20, 20, 0.9);
+            padding: 40px;
+            border: 2px solid #fff;
+            border-radius: 0;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+        }
+        h1.glitch-title {
+            font-size: 40px;
+            margin: 0 0 40px 0;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            border-bottom: 2px solid #fff;
+            padding-bottom: 10px;
+        }
+        .section {
+            margin-bottom: 30px;
+            text-align: left;
+        }
+        label {
+            display: block;
+            font-size: 14px;
+            color: #888;
+            margin-bottom: 10px;
+            letter-spacing: 2px;
+        }
+        .color-picker {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        .swatch {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .swatch:hover {
+            transform: scale(1.1);
+        }
+        .swatch.selected {
+            border-color: #fff;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+        input[type=range] {
+            width: 100%;
+            background: transparent;
+            -webkit-appearance: none;
+            margin: 10px 0;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #444;
+            border: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #fff;
+            margin-top: -8px;
+            cursor: pointer;
+        }
+        .stats-preview {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+        
         button {
             padding: 15px 40px;
             font-size: 20px;
             background: #fff;
             color: #000;
             border: none;
-            border-radius: 4px;
+            border-radius: 0;
             cursor: pointer;
             font-family: monospace;
             text-transform: uppercase;
             font-weight: bold;
             margin-top: 20px;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #eee;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(255,255,255,0.2);
         }
         button:active {
             background: #ccc;
+            transform: translateY(0);
         }
     </style>
     <script type="importmap">
@@ -91,8 +192,38 @@
 </head>
 <body>
     <div id="game-container"></div>
-    <div id="ui">SCORE: 0</div>
-    <div id="controls-hint">DRAG TO MOVE • TAP/SWIPE UP TO JUMP</div>
+    <div id="title-screen">
+        <div class="content">
+            <h1 class="glitch-title">VOID RUNNER</h1>
+            
+            <div class="char-creator">
+                <div class="section">
+                    <label>SIGNAL COLOR</label>
+                    <div class="color-picker" id="color-picker">
+                        <div class="swatch selected" data-color="0xFFD700" style="background: #FFD700;"></div> <!-- Yellow -->
+                        <div class="swatch" data-color="0xFF0055" style="background: #FF0055;"></div> <!-- Neon Red -->
+                        <div class="swatch" data-color="0x00FFAA" style="background: #00FFAA;"></div> <!-- Cyan -->
+                        <div class="swatch" data-color="0xAA00FF" style="background: #AA00FF;"></div> <!-- Purple -->
+                        <div class="swatch" data-color="0xFFFFFF" style="background: #FFFFFF;"></div> <!-- White -->
+                    </div>
+                </div>
+
+                <div class="section">
+                    <label>RESONANCE (SIZE)</label>
+                    <input type="range" id="size-slider" min="0.9" max="1.1" step="0.05" value="1.0">
+                    <div class="stats-preview">
+                        <span id="speed-stat">SPEED: 100%</span>
+                        <span id="jump-stat">JUMP: 100%</span>
+                    </div>
+                </div>
+            </div>
+
+            <button id="start-game-btn">INITIALIZE RUN</button>
+        </div>
+    </div>
+
+    <div id="ui" style="display: none;">SCORE: 0</div>
+    <div id="controls-hint" style="display: none;">DRAG TO MOVE • TAP/SWIPE UP TO JUMP</div>
     
     <div id="game-over">
         <h1 style="font-size: 40px; margin: 0 0 20px 0;">VOID</h1>

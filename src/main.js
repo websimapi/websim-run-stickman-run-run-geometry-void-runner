@@ -36,17 +36,61 @@ const uiGameOver = document.getElementById('game-over');
 const uiFinalScore = document.getElementById('final-score');
 const restartBtn = document.getElementById('restart-btn');
 const hintEl = document.getElementById('controls-hint');
+const titleScreen = document.getElementById('title-screen');
+const startGameBtn = document.getElementById('start-game-btn');
+
+// Character Creation UI
+const swatches = document.querySelectorAll('.swatch');
+const sizeSlider = document.getElementById('size-slider');
+const speedStat = document.getElementById('speed-stat');
+const jumpStat = document.getElementById('jump-stat');
+
+let selectedColor = 0xFFD700;
+let selectedSize = 1.0;
+
+swatches.forEach(s => {
+    s.addEventListener('click', () => {
+        swatches.forEach(sw => sw.classList.remove('selected'));
+        s.classList.add('selected');
+        selectedColor = parseInt(s.dataset.color);
+        character.configure(selectedColor, selectedSize);
+    });
+});
+
+sizeSlider.addEventListener('input', (e) => {
+    selectedSize = parseFloat(e.target.value);
+    
+    // Update labels
+    const speedP = Math.round((1.0 + (1.0 - selectedSize)) * 100);
+    const jumpP = Math.round(selectedSize * 100);
+    
+    speedStat.innerText = `SPEED: ${speedP}%`;
+    jumpStat.innerText = `JUMP: ${jumpP}%`;
+    
+    character.configure(selectedColor, selectedSize);
+});
 
 // State
 let isRunning = false;
 let isGameOver = false;
+let inMenu = true;
 const clock = new THREE.Clock();
 const bgm = new Audio('bgm_space.mp3');
 bgm.loop = true;
 bgm.volume = 0.5;
 
+startGameBtn.addEventListener('click', () => {
+    inMenu = false;
+    titleScreen.style.display = 'none';
+    uiScore.style.display = 'block';
+    hintEl.style.display = 'block';
+    
+    // Apply final config
+    character.configure(selectedColor, selectedSize);
+});
+
 function startGame() {
-    if (isRunning) return;
+    if (isRunning || inMenu) return;
     isRunning = true;
     hintEl.style.opacity = 0;
     bgm.play().catch(()=>{});
@@ -60,11 +104,11 @@ let touchStartY = 0;
 let jumpTriggeredOnPress = false;
 
 function updatePlayerTarget(clientX, clientY) {
+    if (inMenu) return;
+    
     mouse.x = (clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(clientY / window.innerHeight) * 2 + 1;
     
-    // Create a plane at the character's Z depth to map mouse X to world X accurately
-    // Plane normal (0,0,1), constant is distance from origin (which is -character.position.z)
     const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), -character.position.z);
     raycaster.setFromCamera(mouse, camera);
     
@@ -77,7 +121,9 @@ function updatePlayerTarget(clientX, clientY) {
 }
 
 window.addEventListener('pointerdown', (e) => {
+    if (inMenu) return;
     if (e.target.tagName === 'BUTTON') return;
+    if (e.target.closest('#title-screen')) return; 
 
     touchStartY = e.clientY;
     jumpTriggeredOnPress = false;
@@ -92,11 +138,11 @@ window.addEventListener('pointerdown', (e) => {
     
     // 2. Check tap ABOVE character (Screen Space)
     const headPos = character.position.clone();
-    headPos.y += 1.6; // Approximate head height
+    headPos.y += 1.6 * character.scale; 
     headPos.project(camera);
 
     const distX = Math.abs(mouse.x - headPos.x);
-    // Check if tap is above head (mouse.y > headPos.y) and roughly aligned horizontally
+    // Check if tap is above head
     const isAboveHead = mouse.y > headPos.y && distX < 0.25;
 
     if (intersects.length > 0 || isAboveHead) {
@@ -105,7 +151,7 @@ window.addEventListener('pointerdown', (e) => {
             character.jump();
             jumpTriggeredOnPress = true;
         }
-        return; // Don't move to target if jumping
+        return; 
     }
 
     if (!isRunning) {
@@ -117,22 +163,22 @@ window.addEventListener('pointerdown', (e) => {
 });
 
 window.addEventListener('pointerup', (e) => {
+    if (inMenu) return;
     if (!isRunning || jumpTriggeredOnPress) return;
     
     const dy = e.clientY - touchStartY;
-    // Swipe UP is negative dy (pixels)
     if (dy < -50) {
         character.jump();
     }
 });
 
 window.addEventListener('pointermove', (e) => {
-    if (!isRunning || isGameOver) return;
+    if (inMenu || !isRunning || isGameOver) return;
     updatePlayerTarget(e.clientX, e.clientY);
 });
 
 window.addEventListener('keydown', (e) => {
-    if (isGameOver) return;
+    if (isGameOver || inMenu) return;
     if (!isRunning) {
         if(['Space','ArrowUp','KeyW','ArrowLeft','ArrowRight'].includes(e.code)) startGame();
     }
@@ -159,7 +205,10 @@ restartBtn.addEventListener('click', () => {
     character.position.set(0, 0, 0);
     character.velocity.set(0, 0, 0);
     character.targetX = 0;
-    character.runSpeed = 16;
+    
+    // Reset speed based on config
+    character.configure(selectedColor, selectedSize);
+    
     character.isGrounded = false;
     character.jumpCount = 0;
     level.reset();
@@ -183,14 +232,29 @@ function animate() {
     level.update(character.position.z);
 
     // Camera
-    const camZ = character.position.z + 8;
-    const camY = character.position.y + 4;
+    let targetCamZ, targetCamY;
     
-    camera.position.z = camZ;
-    camera.position.y += (camY - camera.position.y) * 5 * dt;
-    camera.position.x += (character.position.x * 0.4 - camera.position.x) * 4 * dt;
+    if (inMenu) {
+        // Zoom in for customization
+        targetCamZ = character.position.z + 4; 
+        targetCamY = character.position.y + 1.5;
+        camera.position.x += (0 - camera.position.x) * 4 * dt; // Center X
+    } else {
+        targetCamZ = character.position.z + 8;
+        targetCamY = character.position.y + 4;
+        camera.position.x += (character.position.x * 0.4 - camera.position.x) * 4 * dt;
+    }
+    
+    camera.position.z += (targetCamZ - camera.position.z) * 5 * dt;
+    camera.position.y += (targetCamY - camera.position.y) * 5 * dt;
+    
     camera.rotation.z = -character.position.x * 0.02; // Slight tilt
-    camera.lookAt(0, character.position.y, character.position.z - 8);
+
+    if (inMenu) {
+        camera.lookAt(0, 0.8, 0); // Look at torso
+    } else {
+        camera.lookAt(0, character.position.y, character.position.z - 8);
+    }
     
     // Light
     dirLight.position.z = character.position.z + 10;
