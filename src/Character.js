@@ -14,6 +14,8 @@ export class Character {
         this.scene.add(this.mesh);
         
         this.initRig();
+        // Face running direction (-Z)
+        this.mesh.rotation.y = Math.PI;
         
         // Game State
         this.time = 0;
@@ -26,6 +28,13 @@ export class Character {
         
         this.jumpCount = 0;
         this.maxJumps = 2;
+
+        // Ledge Grab State
+        this.isClimbing = false;
+        this.climbTime = 0;
+        this.climbDuration = 0.6;
+        this.climbStartPos = new THREE.Vector3();
+        this.climbTargetPos = new THREE.Vector3();
     }
 
     initRig() {
@@ -103,6 +112,8 @@ export class Character {
     }
 
     jump() {
+        if (this.isClimbing) return;
+
         if (this.isGrounded || this.jumpCount < this.maxJumps) {
             this.velocity.y = this.jumpForce;
             this.isGrounded = false;
@@ -115,6 +126,11 @@ export class Character {
     }
 
     update(dt, platforms, isRunning) {
+        if (this.isClimbing) {
+            this.updateClimb(dt);
+            return true;
+        }
+
         // Horizontal Lerp
         this.position.x += (this.targetX - this.position.x) * 10 * dt;
 
@@ -130,7 +146,12 @@ export class Character {
             this.velocity.y += this.gravity * dt;
             this.position.y += this.velocity.y * dt;
 
-            this.checkCollisions(platforms);
+            const landed = this.checkCollisions(platforms);
+            
+            if (!landed && this.velocity.y < 0) {
+                this.checkLedgeGrab(platforms);
+            }
+
             this.animateRun();
         } else {
             this.time += dt * 2; 
@@ -150,8 +171,6 @@ export class Character {
         const feetZ = this.position.z;
         const feetX = this.position.x;
 
-        // Optimization: only check platforms somewhat close?
-        // Rely on array iteration for now (N is small)
         for (const p of platforms) {
             if (feetZ < p.z + p.depth/2 && feetZ > p.z - p.depth/2) {
                 if (feetX > p.x - p.width/2 && feetX < p.x + p.width/2) {
@@ -163,11 +182,113 @@ export class Character {
                             this.position.y = surfaceY;
                             this.isGrounded = true;
                             this.jumpCount = 0;
-                            return;
+                            return true;
                         }
                     }
                 }
             }
+        }
+        return false;
+    }
+
+    checkLedgeGrab(platforms) {
+        const feetY = this.position.y;
+        const feetZ = this.position.z;
+        const feetX = this.position.x;
+        
+        for (const p of platforms) {
+            const pEdgeZ = p.z + p.depth / 2;
+            const distZ = feetZ - pEdgeZ; // Positive means we are "before" the edge (since moving to -Z)
+            
+            // Check if close to edge
+            if (distZ > -0.2 && distZ < 1.0) {
+                // Check X Alignment
+                if (feetX > p.x - p.width/2 && feetX < p.x + p.width/2) {
+                    // Check Height (Shoulders/Hands at surface level)
+                    // Surface is at p.y + 0.5
+                    const surfaceY = p.y + 0.5;
+                    const drop = surfaceY - feetY;
+                    
+                    // If feet are 1.2 to 2.5 units below surface (approx body height range)
+                    if (drop > 1.2 && drop < 2.5) {
+                        this.startClimb(surfaceY, pEdgeZ);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    startClimb(surfaceY, edgeZ) {
+        this.isClimbing = true;
+        this.climbTime = 0;
+        this.velocity.set(0, 0, 0);
+        
+        this.climbStartPos.copy(this.position);
+        this.climbStartPos.z = edgeZ + 0.25; // Snap to edge
+        
+        this.climbTargetPos.copy(this.climbStartPos);
+        this.climbTargetPos.y = surfaceY;
+        this.climbTargetPos.z = edgeZ - 0.5; // Move onto platform
+        
+        this.mesh.rotation.x = 0; // Reset lean
+    }
+
+    updateClimb(dt) {
+        this.climbTime += dt;
+        const t = Math.min(this.climbTime / this.climbDuration, 1.0);
+        
+        // Easing
+        const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; 
+        
+        this.position.lerpVectors(this.climbStartPos, this.climbTargetPos, ease);
+        this.mesh.position.copy(this.position);
+        
+        this.animateClimb(t);
+
+        if (t >= 1.0) {
+            this.isClimbing = false;
+            this.isGrounded = true;
+            this.jumpCount = 0;
+            this.position.copy(this.climbTargetPos);
+        }
+    }
+
+    animateClimb(t) {
+        const hips = this.parts.hips;
+        const armL = this.parts.armL;
+        const armR = this.parts.armR;
+        const legL = this.parts.legL;
+        const legR = this.parts.legR;
+
+        // Reset lean
+        this.mesh.rotation.x = 0;
+
+        if (t < 0.3) {
+            // Grab Phase
+            hips.position.y = 1.0;
+            // Arms Reach Up
+            armL.upper.rotation.x = -2.8; 
+            armR.upper.rotation.x = -2.8;
+            armL.lower.rotation.x = -0.5;
+            armR.lower.rotation.x = -0.5;
+            // Legs Dangle
+            legL.upper.rotation.x = 0.2;
+            legR.upper.rotation.x = 0.2;
+        } else {
+            // Pull Up Phase
+            const pull = (t - 0.3) / 0.7;
+            hips.position.y = 1.0 + pull * 0.2;
+            
+            // Arms pull down
+            armL.upper.rotation.x = -2.8 + pull * 2.5; 
+            armR.upper.rotation.x = -2.8 + pull * 2.5;
+            
+            // Legs knee up
+            legL.upper.rotation.x = 0.2 + Math.sin(pull * Math.PI) * 1.5;
+            legR.upper.rotation.x = 0.2 + Math.sin(pull * Math.PI) * 1.5;
+            legL.lower.rotation.x = 0;
+            legR.lower.rotation.x = 0;
         }
     }
 
