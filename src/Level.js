@@ -16,8 +16,9 @@ export class Level {
             flatShading: true
         });
 
-        // Start platform
+        // Start platform - initially hidden for menu
         this.addPlatform(0, 0, 0, 10, 40); 
+        this.platforms[0].mesh.visible = false;
     }
 
     addPlatform(x, y, z, width, depth) {
@@ -100,6 +101,13 @@ export class Level {
         this.platforms = [];
         this.spawnZ = -20;
         this.addPlatform(0, 0, 0, 10, 40);
+    }
+
+    start() {
+        // Ensure start platform is visible
+        if (this.platforms.length > 0) {
+            this.platforms[0].mesh.visible = true;
+        }
     }
 }
 

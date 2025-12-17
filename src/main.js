@@ -30,6 +30,35 @@ scene.add(dirLight);
 const character = new Character(scene);
 const level = new Level(scene);
 
+// Menu Environment
+const menuStageGeo = new THREE.CylinderGeometry(2.5, 2.5, 0.1, 32);
+const menuStageMat = new THREE.MeshStandardMaterial({ 
+    color: 0x111111,
+    roughness: 0.2,
+    metalness: 0.8,
+});
+const menuStage = new THREE.Mesh(menuStageGeo, menuStageMat);
+menuStage.position.y = -0.05;
+menuStage.receiveShadow = true;
+scene.add(menuStage);
+
+// Emissive ring for stage
+const ringGeo = new THREE.TorusGeometry(2.4, 0.05, 16, 64);
+const ringMat = new THREE.MeshBasicMaterial({ color: 0x00FFFF });
+const menuRing = new THREE.Mesh(ringGeo, ringMat);
+menuRing.rotation.x = -Math.PI / 2;
+menuRing.position.y = 0.01;
+menuStage.add(menuRing);
+
+// Menu Spotlight
+const menuLight = new THREE.SpotLight(0xffffff, 8);
+menuLight.position.set(0, 6, 3);
+menuLight.angle = 0.6;
+menuLight.penumbra = 0.3;
+menuLight.castShadow = true;
+menuLight.shadow.bias = -0.0001;
+scene.add(menuLight);
+
 // UI
 const uiScore = document.getElementById('ui');
 const uiGameOver = document.getElementById('game-over');
@@ -84,6 +113,13 @@ startGameBtn.addEventListener('click', () => {
     titleScreen.style.display = 'none';
     uiScore.style.display = 'block';
     hintEl.style.display = 'block';
+    
+    // Hide menu environment
+    menuStage.visible = false;
+    menuLight.visible = false;
+    
+    // Show game level
+    level.start();
     
     // Apply final config
     character.configure(selectedColor, selectedSize);
@@ -211,7 +247,11 @@ restartBtn.addEventListener('click', () => {
     
     character.isGrounded = false;
     character.jumpCount = 0;
+    
+    // Ensure proper level reset
     level.reset();
+    level.start(); // Make sure start platform is visible for retry
+    
     uiGameOver.classList.remove('visible');
     uiScore.innerText = "SCORE: 0";
     hintEl.style.opacity = 1;
@@ -228,31 +268,41 @@ function animate() {
         if (keys.right) character.targetX += 30 * dt;
     }
     
-    const alive = character.update(dt, level.platforms, isRunning);
-    level.update(character.position.z);
+    const alive = character.update(dt, level.platforms, isRunning, inMenu);
+    
+    if (!inMenu) {
+        level.update(character.position.z);
+    }
 
     // Camera
-    let targetCamZ, targetCamY;
+    let targetCamZ, targetCamY, targetCamX;
     
     if (inMenu) {
-        // Zoom in for customization
-        targetCamZ = character.position.z + 4; 
-        targetCamY = character.position.y + 1.5;
-        camera.position.x += (0 - camera.position.x) * 4 * dt; // Center X
+        // Studio Angle
+        targetCamZ = 3.5; 
+        targetCamY = 1.6;
+        // On mobile (portrait), center the character. On desktop, offset to allow room for UI.
+        targetCamX = window.innerWidth < 600 ? 0 : 1.2; 
+        
+        // Add subtle idle sway to camera
+        const t = Date.now() * 0.0005;
+        targetCamX += Math.sin(t) * 0.2;
+        targetCamY += Math.cos(t * 0.7) * 0.1;
+        
+        camera.position.x += (targetCamX - camera.position.x) * 2 * dt;
+        camera.position.z += (targetCamZ - camera.position.z) * 2 * dt;
+        camera.position.y += (targetCamY - camera.position.y) * 2 * dt;
+        
+        camera.lookAt(0, 0.9, 0); 
     } else {
         targetCamZ = character.position.z + 8;
         targetCamY = character.position.y + 4;
+        
         camera.position.x += (character.position.x * 0.4 - camera.position.x) * 4 * dt;
-    }
-    
-    camera.position.z += (targetCamZ - camera.position.z) * 5 * dt;
-    camera.position.y += (targetCamY - camera.position.y) * 5 * dt;
-    
-    camera.rotation.z = -character.position.x * 0.02; // Slight tilt
-
-    if (inMenu) {
-        camera.lookAt(0, 0.8, 0); // Look at torso
-    } else {
+        camera.position.z += (targetCamZ - camera.position.z) * 5 * dt;
+        camera.position.y += (targetCamY - camera.position.y) * 5 * dt;
+        
+        camera.rotation.z = -character.position.x * 0.02;
         camera.lookAt(0, character.position.y, character.position.z - 8);
     }
     

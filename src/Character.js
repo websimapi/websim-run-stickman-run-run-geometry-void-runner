@@ -38,6 +38,9 @@ export class Character {
         this.climbDuration = 0.6;
         this.climbStartPos = new THREE.Vector3();
         this.climbTargetPos = new THREE.Vector3();
+
+        // Menu Animation State
+        this.menuTime = 0;
     }
 
     initRig() {
@@ -149,7 +152,13 @@ export class Character {
         }
     }
 
-    update(dt, platforms, isRunning) {
+    update(dt, platforms, isRunning, inMenu = false) {
+        if (inMenu) {
+            this.animateMenu(dt);
+            this.mesh.position.copy(this.position);
+            return true;
+        }
+
         if (this.isClimbing) {
             this.updateClimb(dt);
             return true;
@@ -186,6 +195,54 @@ export class Character {
         
         // Death Condition
         return this.position.y > -15;
+    }
+
+    animateMenu(dt) {
+        this.menuTime += dt;
+        const cycleDuration = 8.0;
+        const t = this.menuTime % cycleDuration;
+        
+        // Cycle: 
+        // 0-1.5s: Idle
+        // 1.5-2.0s: Small Jump/Bounce
+        // 2.0-4.0s: Idle
+        // 4.0-7.0s: Run in Place
+        // 7.0-8.0s: Transition to Idle
+
+        if (t < 1.5) {
+            // Idle
+            this.time += dt * 2;
+            this.animateIdle();
+            this.position.y = 0;
+        } else if (t < 2.0) {
+            // Bounce
+            const bounceT = (t - 1.5) / 0.5; // 0 to 1
+            this.position.y = Math.sin(bounceT * Math.PI) * 0.5;
+            
+            // Arms up a bit
+            this.parts.armL.upper.rotation.x = -2.0;
+            this.parts.armR.upper.rotation.x = -2.0;
+            this.parts.legL.upper.rotation.x = 0.5;
+            this.parts.legR.upper.rotation.x = -0.5;
+        } else if (t < 4.0) {
+            // Idle
+            this.time += dt * 2;
+            this.animateIdle();
+            this.position.y = 0;
+        } else if (t < 7.0) {
+            // Run in Place
+            this.time += dt * 15; // Fast run anim
+            this.animateRun();
+            this.position.y = 0;
+            
+            // Correct run anim for "in place" (remove lean if needed, but lean looks cool)
+            this.mesh.rotation.x = 0.1; 
+        } else {
+            // Transition back to idle
+            this.time += dt * 2;
+            this.animateIdle();
+            this.position.y = 0;
+        }
     }
 
     checkCollisions(platforms) {
