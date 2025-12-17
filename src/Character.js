@@ -229,7 +229,7 @@ export class Character {
                     // Target: move onto platform in Z, keep X
                     const target = new THREE.Vector3(this.position.x, surfaceY, pEdgeZ - 0.5);
                     const snap = new THREE.Vector3(this.position.x, this.position.y, pEdgeZ + 0.25);
-                    this.startClimb(target, snap);
+                    this.startClimb(target, snap, Math.PI); // Face Front
                     return;
                 }
             }
@@ -242,28 +242,28 @@ export class Character {
                 const grabDist = 0.6; 
 
                 // Left Side (Platform is to the right of player)
-                // Player X < LeftEdge
+                // Player X < LeftEdge => Needs to face +X (Right) to grab
                 if (feetX < leftEdge && feetX > leftEdge - grabDist) {
                     // Target: move onto platform (leftEdge + padding)
                     const target = new THREE.Vector3(leftEdge + 0.4, surfaceY, feetZ - 0.5);
                     const snap = new THREE.Vector3(leftEdge - 0.2, this.position.y, feetZ);
-                    this.startClimb(target, snap);
+                    this.startClimb(target, snap, Math.PI / 2); 
                     return;
                 }
 
                 // Right Side (Platform is to the left of player)
-                // Player X > RightEdge
+                // Player X > RightEdge => Needs to face -X (Left) to grab
                 if (feetX > rightEdge && feetX < rightEdge + grabDist) {
                     const target = new THREE.Vector3(rightEdge - 0.4, surfaceY, feetZ - 0.5);
                     const snap = new THREE.Vector3(rightEdge + 0.2, this.position.y, feetZ);
-                    this.startClimb(target, snap);
+                    this.startClimb(target, snap, Math.PI * 1.5); // 270 deg is Left
                     return;
                 }
             }
         }
     }
 
-    startClimb(targetPos, snapPos) {
+    startClimb(targetPos, snapPos, facingAngle) {
         this.isClimbing = true;
         this.climbTime = 0;
         this.velocity.set(0, 0, 0);
@@ -277,6 +277,9 @@ export class Character {
         
         this.climbTargetPos.copy(targetPos);
         this.mesh.rotation.x = 0; // Reset lean
+        
+        this.climbStartRot = this.mesh.rotation.y;
+        this.climbTargetRot = (facingAngle !== undefined) ? facingAngle : Math.PI;
     }
 
     updateClimb(dt) {
@@ -289,6 +292,10 @@ export class Character {
         this.position.lerpVectors(this.climbStartPos, this.climbTargetPos, ease);
         this.mesh.position.copy(this.position);
         
+        // Rotation Lerp (Quick turn)
+        const rotT = Math.min(this.climbTime / 0.15, 1.0); 
+        this.mesh.rotation.y = this.climbStartRot + (this.climbTargetRot - this.climbStartRot) * rotT;
+        
         this.animateClimb(t);
 
         if (t >= 1.0) {
@@ -298,6 +305,7 @@ export class Character {
             this.position.copy(this.climbTargetPos);
             // Sync targetX so we don't drift back immediately
             this.targetX = this.position.x;
+            this.mesh.rotation.y = Math.PI; // Reset to face forward
         }
     }
 
