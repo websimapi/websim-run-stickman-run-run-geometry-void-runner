@@ -56,6 +56,8 @@ function startGame() {
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const keys = { left: false, right: false };
+let touchStartY = 0;
+let jumpTriggeredOnPress = false;
 
 function updatePlayerTarget(clientX, clientY) {
     mouse.x = (clientX / window.innerWidth) * 2 - 1;
@@ -77,17 +79,33 @@ function updatePlayerTarget(clientX, clientY) {
 window.addEventListener('pointerdown', (e) => {
     if (e.target.tagName === 'BUTTON') return;
 
-    // Check tap on character
+    touchStartY = e.clientY;
+    jumpTriggeredOnPress = false;
+
+    // Normalize mouse
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
     
-    // Check character intersection for jump
+    // 1. Check tap DIRECTLY on character
     const intersects = raycaster.intersectObject(character.mesh, true);
-    if (intersects.length > 0) {
+    
+    // 2. Check tap ABOVE character (Screen Space)
+    const headPos = character.position.clone();
+    headPos.y += 1.6; // Approximate head height
+    headPos.project(camera);
+
+    const distX = Math.abs(mouse.x - headPos.x);
+    // Check if tap is above head (mouse.y > headPos.y) and roughly aligned horizontally
+    const isAboveHead = mouse.y > headPos.y && distX < 0.25;
+
+    if (intersects.length > 0 || isAboveHead) {
         if (!isRunning) startGame();
-        else character.jump();
-        return;
+        else {
+            character.jump();
+            jumpTriggeredOnPress = true;
+        }
+        return; // Don't move to target if jumping
     }
 
     if (!isRunning) {
@@ -96,6 +114,16 @@ window.addEventListener('pointerdown', (e) => {
     
     // Immediate move
     updatePlayerTarget(e.clientX, e.clientY);
+});
+
+window.addEventListener('pointerup', (e) => {
+    if (!isRunning || jumpTriggeredOnPress) return;
+    
+    const dy = e.clientY - touchStartY;
+    // Swipe UP is negative dy (pixels)
+    if (dy < -50) {
+        character.jump();
+    }
 });
 
 window.addEventListener('pointermove', (e) => {
