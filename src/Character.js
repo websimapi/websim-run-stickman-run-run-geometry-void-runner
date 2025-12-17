@@ -25,6 +25,9 @@ export class Character {
         this.gravity = -40;
         this.jumpForce = 15;
         this.runSpeed = 16;
+        
+        this.jumpCount = 0;
+        this.maxJumps = 2;
     }
 
     initRig() {
@@ -102,10 +105,14 @@ export class Character {
     }
 
     jump() {
-        if (this.isGrounded) {
+        if (this.isGrounded || this.jumpCount < this.maxJumps) {
             this.velocity.y = this.jumpForce;
             this.isGrounded = false;
-            new Audio('jump.mp3').play().catch(()=>{});
+            this.jumpCount++;
+            
+            const sound = new Audio('jump.mp3');
+            if (this.jumpCount > 1) sound.playbackRate = 1.25;
+            sound.play().catch(()=>{});
         }
     }
 
@@ -162,6 +169,7 @@ export class Character {
                             this.velocity.y = 0;
                             this.position.y = surfaceY;
                             this.isGrounded = true;
+                            this.jumpCount = 0;
                             return;
                         }
                     }

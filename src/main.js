@@ -70,8 +70,29 @@ function handleInput(x) {
 }
 
 // Input Events
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
 window.addEventListener('pointerdown', (e) => {
-    if (e.target.tagName !== 'BUTTON') handleInput(e.clientX);
+    if (e.target.tagName === 'BUTTON') return;
+
+    // Raycast to check if tapping character directly
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObject(character.mesh, true);
+    
+    if (intersects.length > 0) {
+        if (!isRunning) {
+            startGame();
+        } else {
+            character.jump();
+        }
+        return;
+    }
+
+    handleInput(e.clientX);
 });
 
 window.addEventListener('keydown', (e) => {
@@ -101,6 +122,7 @@ restartBtn.addEventListener('click', () => {
     character.targetX = 0;
     character.runSpeed = 16;
     character.isGrounded = false;
+    character.jumpCount = 0;
     level.reset();
     uiGameOver.classList.remove('visible');
     uiScore.innerText = "SCORE: 0";
