@@ -137,23 +137,34 @@ const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const keys = { left: false, right: false };
 let touchStartY = 0;
+let lastTouchX = 0;
 let jumpTriggeredOnPress = false;
 
+// We no longer use raycasting for X position, but rather relative movement
 function updatePlayerTarget(clientX, clientY) {
     if (inMenu) return;
     
-    mouse.x = (clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+    // On desktop, map mouse X [-1, 1] to Angle [-PI, PI]?
+    // Or continuous steering?
+    // Let's do continuous steering for touch, map for mouse?
+    // User wants "360 movement". 
+    // Mouse: Map center of screen to player angle.
+    // Normalized Mouse X (-1 to 1) -> Target Angle Offset?
     
-    const planeZ = new THREE.Plane(new THREE.Vector3(0, 0, 1), -character.position.z);
-    raycaster.setFromCamera(mouse, camera);
+    // Better: Delta movement.
+    // But for a runner, absolute control is often easier.
+    // Let's map Screen Width to ONE full rotation (2PI).
     
-    const target = new THREE.Vector3();
-    raycaster.ray.intersectPlane(planeZ, target);
+    // Normalized 0..1
+    const nX = clientX / window.innerWidth;
+    // Map to -PI to PI
+    const targetA = (nX - 0.5) * Math.PI * 2;
+    // But this snaps absolute position.
     
-    if (target) {
-        character.targetX = target.x;
-    }
+    // Let's just use the previous logic: move target based on input
+    // If we want 360, maybe we just increment/decrement targetAngle?
+    // For mouse/touch drag:
+    // We handle this in the event listeners
 }
 
 window.addEventListener('pointerdown', (e) => {
@@ -162,40 +173,16 @@ window.addEventListener('pointerdown', (e) => {
     if (e.target.closest('#title-screen')) return; 
 
     touchStartY = e.clientY;
+    lastTouchX = e.clientX;
     jumpTriggeredOnPress = false;
 
-    // Normalize mouse
+    // Normalize mouse for interactions
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-    raycaster.setFromCamera(mouse, camera);
     
-    // 1. Check tap DIRECTLY on character
-    const intersects = raycaster.intersectObject(character.mesh, true);
-    
-    // 2. Check tap ABOVE character (Screen Space)
-    const headPos = character.position.clone();
-    headPos.y += 1.6 * character.scale; 
-    headPos.project(camera);
-
-    const distX = Math.abs(mouse.x - headPos.x);
-    // Check if tap is above head
-    const isAboveHead = mouse.y > headPos.y && distX < 0.25;
-
-    if (intersects.length > 0 || isAboveHead) {
-        if (!isRunning) startGame();
-        else {
-            character.jump();
-            jumpTriggeredOnPress = true;
-        }
-        return; 
-    }
-
     if (!isRunning) {
         startGame();
     }
-    
-    // Immediate move
-    updatePlayerTarget(e.clientX, e.clientY);
 });
 
 window.addEventListener('pointerup', (e) => {
@@ -203,14 +190,26 @@ window.addEventListener('pointerup', (e) => {
     if (!isRunning || jumpTriggeredOnPress) return;
     
     const dy = e.clientY - touchStartY;
-    if (dy < -50) {
+    if (dy < -50) { // Swipe up
+        character.jump();
+        jumpTriggeredOnPress = true; // Prevent double trigger
+    } else if (Math.abs(dy) < 10 && Math.abs(e.clientX - lastTouchX) < 10) {
+        // Tap
         character.jump();
     }
 });
 
 window.addEventListener('pointermove', (e) => {
     if (inMenu || !isRunning || isGameOver) return;
-    updatePlayerTarget(e.clientX, e.clientY);
+    
+    // Drag to steer
+    // Sensitivity: Full screen width = 2 rotations?
+    const dx = e.clientX - lastTouchX;
+    lastTouchX = e.clientX;
+    
+    // Sensitivity
+    const sens = 0.01;
+    character.targetAngle += dx * sens;
 });
 
 window.addEventListener('keydown', (e) => {
@@ -264,8 +263,9 @@ function animate() {
     const dt = Math.min(clock.getDelta(), 0.1);
 
     if (isRunning && !isGameOver) {
-        if (keys.left) character.targetX -= 30 * dt;
-        if (keys.right) character.targetX += 30 * dt;
+        const turnSpeed = 3.0;
+        if (keys.left) character.targetAngle -= turnSpeed * dt;
+        if (keys.right) character.targetAngle += turnSpeed * dt;
     }
     
     const alive = character.update(dt, level.platforms, isRunning, inMenu);
@@ -275,16 +275,12 @@ function animate() {
     }
 
     // Camera
-    let targetCamZ, targetCamY, targetCamX;
-    
     if (inMenu) {
-        // Studio Angle
-        targetCamZ = 3.5; 
-        targetCamY = 1.6;
-        // On mobile (portrait), center the character. On desktop, offset to allow room for UI.
-        targetCamX = window.innerWidth < 600 ? 0 : 1.2; 
+        // Studio Angle (unchanged)
+        let targetCamZ = 3.5; 
+        let targetCamY = 1.6;
+        let targetCamX = window.innerWidth < 600 ? 0 : 1.2; 
         
-        // Add subtle idle sway to camera
         const t = Date.now() * 0.0005;
         targetCamX += Math.sin(t) * 0.2;
         targetCamY += Math.cos(t * 0.7) * 0.1;
@@ -292,21 +288,53 @@ function animate() {
         camera.position.x += (targetCamX - camera.position.x) * 2 * dt;
         camera.position.z += (targetCamZ - camera.position.z) * 2 * dt;
         camera.position.y += (targetCamY - camera.position.y) * 2 * dt;
-        
+        camera.rotation.set(0,0,0);
         camera.lookAt(0, 0.9, 0); 
         
         // Interactive Rotation
         character.mesh.rotation.y = Math.PI + (mouse.x * 0.3);
     } else {
-        targetCamZ = character.position.z + 8;
-        targetCamY = character.position.y + 4;
+        // Cylinder Follow Camera
+        // We want the camera to rotate WITH the player around the center Z axis
+        // And stay "above" the player (towards center).
+        // Actually, for "Run" style, camera is usually fixed "up" relative to player surface
         
-        camera.position.x += (character.position.x * 0.4 - camera.position.x) * 4 * dt;
-        camera.position.z += (targetCamZ - camera.position.z) * 5 * dt;
-        camera.position.y += (targetCamY - camera.position.y) * 5 * dt;
+        const r = 8; // Tunnel radius
+        const camHeight = 4.0; // Distance from wall inwards
+        const camDist = 6.0; // Distance behind player
         
-        camera.rotation.z = -character.position.x * 0.02;
-        camera.lookAt(0, character.position.y, character.position.z - 8);
+        // We want camera at angle = char.angle
+        // Radius from center = r - camHeight
+        const camR = r - camHeight;
+        
+        // Target Camera Position (Polar -> Cartesian)
+        // Lerp angle for smoothness
+        const charAngle = character.angle;
+        
+        const targetX = camR * Math.sin(charAngle);
+        const targetY = -camR * Math.cos(charAngle);
+        const targetZ = character.position.z + camDist;
+
+        // Smooth follow
+        camera.position.x += (targetX - camera.position.x) * 5 * dt;
+        camera.position.y += (targetY - camera.position.y) * 5 * dt;
+        camera.position.z += (targetZ - camera.position.z) * 5 * dt;
+        
+        // Rotation:
+        // Camera Up vector should be towards center? 
+        // Or simply rotate camera Z to match player angle?
+        // camera.rotation.z = -charAngle;
+        
+        // Look at player? Or look ahead?
+        // Look ahead point
+        const lookZ = character.position.z - 10;
+        const lookX = (r - 2) * Math.sin(charAngle);
+        const lookY = -(r - 2) * Math.cos(charAngle);
+        
+        camera.lookAt(lookX, lookY, lookZ);
+        
+        // Roll camera to match player local up
+        camera.rotation.z = -charAngle; 
     }
     
     // Light

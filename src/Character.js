@@ -19,7 +19,10 @@ export class Character {
         
         // Game State
         this.time = 0;
-        this.targetX = 0;
+        this.angle = 0;
+        this.targetAngle = 0;
+        this.radius = 8; // Match level radius
+        this.height = 0; // Height from surface
         
         // Physics
         this.gravity = -40;
@@ -155,7 +158,8 @@ export class Character {
     update(dt, platforms, isRunning, inMenu = false) {
         if (inMenu) {
             this.animateMenu(dt);
-            this.mesh.position.copy(this.position);
+            // In menu, override rotation for studio look
+            this.mesh.rotation.set(0, Math.PI, 0); 
             return true;
         }
 
@@ -164,8 +168,15 @@ export class Character {
             return true;
         }
 
-        // Horizontal Lerp
-        this.position.x += (this.targetX - this.position.x) * 10 * dt;
+        // Angular Lerp (Shortest path)
+        let diff = this.targetAngle - this.angle;
+        // Normalize diff to -PI to PI
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        
+        this.angle += diff * 10 * dt;
+        // Normalize angle
+        this.angle = this.angle % (Math.PI * 2);
 
         if (isRunning) {
             // Speed up slowly
@@ -175,9 +186,9 @@ export class Character {
             // Move Forward
             this.position.z -= this.runSpeed * dt;
 
-            // Gravity
-            this.velocity.y += this.gravity * dt;
-            this.position.y += this.velocity.y * dt;
+            // Vertical Physics (Radial)
+            this.velocity.y += this.gravity * dt; // velocity.y acts as radial velocity here
+            this.height += this.velocity.y * dt;
 
             const landed = this.checkCollisions(platforms);
             
@@ -191,10 +202,22 @@ export class Character {
             this.animateIdle();
         }
 
+        // Convert Polar to Cartesian
+        const effectiveR = this.radius - this.height;
+        this.position.x = effectiveR * Math.sin(this.angle);
+        this.position.y = -effectiveR * Math.cos(this.angle);
+
         this.mesh.position.copy(this.position);
         
-        // Death Condition
-        return this.position.y > -15;
+        // Rotation: Align feet to center, Face -Z
+        // Standard rotation: Z axis rotation = -angle
+        this.mesh.rotation.set(0, 0, -this.angle);
+        this.mesh.rotateY(Math.PI); // Face forward
+
+        // Death Condition (Fall inward too far or glitch out)
+        // In cylinder runner, you don't really fall "off", but maybe if you hit a void section?
+        // Let's say if height is too negative (glitched through floor)
+        return this.height > -5; 
     }
 
     animateMenu(dt) {
@@ -271,34 +294,53 @@ export class Character {
     checkCollisions(platforms) {
         this.isGrounded = false;
         
-        const feetY = this.position.y; 
-        const feetZ = this.position.z;
-        const feetX = this.position.x;
-        const height = 1.6 * this.scale;
-        const headY = feetY + height;
+        const myZ = this.position.z;
+        const myHeight = this.height; 
+        const myAngle = this.angle; // -PI to PI approx
 
+        // Normalize angle to 0..2PI for easier comparison? Or keep -PI..PI
+        // Let's rely on angular difference
+        
         for (const p of platforms) {
-            // Horizontal bounds check
-            if (feetZ < p.z + p.depth/2 && feetZ > p.z - p.depth/2) {
-                if (feetX > p.x - p.width/2 && feetX < p.x + p.width/2) {
+            // Z Overlap
+            if (myZ < p.z + p.depth/2 && myZ > p.z - p.depth/2) {
+                
+                // Angle Overlap
+                let diff = Math.abs(p.angle - myAngle);
+                while (diff > Math.PI) diff = Math.abs(diff - Math.PI * 2);
+                
+                // Convert platform width factor to angle width approximation
+                // widthScale 1.5 ~= 3 units. Circumference 50. 
+                // Angle width ~= (widthScale * 2) / 8
+                const halfAngleWidth = (p.width * 1.0) / this.radius; 
+                
+                if (diff < halfAngleWidth) {
                     
-                    const surfaceY = p.y + 0.5;
-                    const bottomY = p.y - 0.5;
+                    const surfaceHeight = p.y + 0.5;
+                    const bottomHeight = p.y - 0.5;
 
-                    // 1. Ceiling Collision
+                    // 1. Ceiling
+                    // If height is increasing (moving in toward center)
+                    // But gravity makes velocity negative... 
+                    // Actually, "up" is towards center. velocity > 0 is jump.
+                    // Platform "y" is offset from wall.
+                    // Wall is height 0.
+                    
                     if (this.velocity.y > 0) {
-                        if (headY >= bottomY && headY < p.y) {
+                        // Hitting bottom of platform from below (closer to wall)
+                        if (myHeight >= bottomHeight - 0.2 && myHeight < p.y) {
                             this.velocity.y = 0;
-                            this.position.y = bottomY - height - 0.05; // Bounce off
+                            this.height = bottomHeight - 0.2;
                             return false;
                         }
                     }
 
-                    // 2. Floor Collision
-                    if (feetY <= surfaceY && feetY > surfaceY - (1.2 * this.scale)) {
+                    // 2. Floor
+                    // Falling towards wall (velocity < 0)
+                    if (myHeight <= surfaceHeight && myHeight > surfaceHeight - 0.5) {
                         if (this.velocity.y <= 0) {
                             this.velocity.y = 0;
-                            this.position.y = surfaceY;
+                            this.height = surfaceHeight;
                             this.isGrounded = true;
                             this.jumpCount = 0;
                             return true;
@@ -307,61 +349,67 @@ export class Character {
                 }
             }
         }
+        
+        // Base Floor (The Tunnel Wall)
+        if (this.height <= 0) {
+             if (this.velocity.y <= 0) {
+                this.velocity.y = 0;
+                this.height = 0;
+                this.isGrounded = true;
+                this.jumpCount = 0;
+                return true;
+            }
+        }
+        
         return false;
     }
 
     checkLedgeGrab(platforms) {
-        if (this.velocity.y > 0) return; // Only grab when falling
+        if (this.velocity.y > 0) return; 
 
-        const feetY = this.position.y;
-        const feetZ = this.position.z;
-        const feetX = this.position.x;
+        // Simplified Ledge Grab for Cylinder: Front Only
+        const myZ = this.position.z;
+        const myHeight = this.height;
+        const myAngle = this.angle;
         
         for (const p of platforms) {
-            const surfaceY = p.y + 0.5;
-            const drop = surfaceY - feetY;
+            const surfaceHeight = p.y + 0.5;
+            const drop = surfaceHeight - myHeight;
 
-            // Height check common for all grabs
-            if (drop < 1.0 * this.scale || drop > 2.5 * this.scale) continue;
+            if (drop < 0.2 || drop > 2.0 * this.scale) continue;
 
-            // 1. Front Ledge Check
             const pEdgeZ = p.z + p.depth / 2;
-            const distZ = feetZ - pEdgeZ;
+            const distZ = myZ - pEdgeZ;
             
-            // Must be aligned horizontally for front grab
-            if (feetX > p.x - p.width/2 && feetX < p.x + p.width/2) {
+            // Check Angle Alignment
+            let diff = Math.abs(p.angle - myAngle);
+            while (diff > Math.PI) diff = Math.abs(diff - Math.PI * 2);
+            const halfAngleWidth = (p.width * 0.8) / this.radius; 
+
+            if (diff < halfAngleWidth) {
                 if (distZ > -0.2 && distZ < 0.8) {
-                    // Target: move onto platform in Z, keep X
-                    const target = new THREE.Vector3(this.position.x, surfaceY, pEdgeZ - 0.5);
-                    const snap = new THREE.Vector3(this.position.x, this.position.y, pEdgeZ + 0.25);
-                    this.startClimb(target, snap, Math.PI); // Face Front
-                    return;
-                }
-            }
-
-            // 2. Side Ledge Check
-            // Must be within Z bounds of the platform
-            if (feetZ < p.z + p.depth/2 && feetZ > p.z - p.depth/2) {
-                const leftEdge = p.x - p.width/2;
-                const rightEdge = p.x + p.width/2;
-                const grabDist = 0.6; 
-
-                // Left Side (Platform is to the right of player)
-                // Player X < LeftEdge => Needs to face +X (Right) to grab
-                if (feetX < leftEdge && feetX > leftEdge - grabDist) {
-                    // Target: move onto platform (leftEdge + padding)
-                    const target = new THREE.Vector3(leftEdge + 0.4, surfaceY, feetZ - 0.5);
-                    const snap = new THREE.Vector3(leftEdge - 0.2, this.position.y, feetZ);
-                    this.startClimb(target, snap, Math.PI / 2); 
-                    return;
-                }
-
-                // Right Side (Platform is to the left of player)
-                // Player X > RightEdge => Needs to face -X (Left) to grab
-                if (feetX > rightEdge && feetX < rightEdge + grabDist) {
-                    const target = new THREE.Vector3(rightEdge - 0.4, surfaceY, feetZ - 0.5);
-                    const snap = new THREE.Vector3(rightEdge + 0.2, this.position.y, feetZ);
-                    this.startClimb(target, snap, Math.PI * 1.5); // 270 deg is Left
+                    // Calc target positions in Cartesian for the animation lerp
+                    const targetR = this.radius - surfaceHeight;
+                    const snapR = this.radius - myHeight;
+                    
+                    const targetX = targetR * Math.sin(myAngle);
+                    const targetY = -targetR * Math.cos(myAngle);
+                    
+                    const snapX = snapR * Math.sin(myAngle);
+                    const snapY = -snapR * Math.cos(myAngle);
+                    
+                    const target = new THREE.Vector3(targetX, targetY, pEdgeZ - 0.5);
+                    const snap = new THREE.Vector3(snapX, snapY, pEdgeZ + 0.25);
+                    
+                    // Facing: we want to keep facing -Z (Math.PI) relative to character frame
+                    // But startClimb expects rotation around Y.
+                    // For the cylinder, we might need to adjust this.
+                    // Actually, the character mesh rotates -angle on Z, then Y.
+                    // Let's pass a flag or just use PI (Standard forward).
+                    this.startClimb(target, snap, Math.PI); 
+                    
+                    // Fix height/angle state for after climb
+                    this.targetHeightAfterClimb = surfaceHeight;
                     return;
                 }
             }
@@ -373,18 +421,20 @@ export class Character {
         this.climbTime = 0;
         this.velocity.set(0, 0, 0);
         
+        // Convert SnapPos to current Cartesian
         this.climbStartPos.copy(this.position);
-        
         if (snapPos) {
-            this.climbStartPos.x = snapPos.x;
-            this.climbStartPos.z = snapPos.z;
+             // For cylinder, we just snap Z, keep curve position
+             // Actually snapPos passed in is Cartesian
+             this.climbStartPos.copy(snapPos);
         }
         
         this.climbTargetPos.copy(targetPos);
-        this.mesh.rotation.x = 0; // Reset lean
         
-        this.climbStartRot = this.mesh.rotation.y;
-        this.climbTargetRot = (facingAngle !== undefined) ? facingAngle : Math.PI;
+        // In cylinder mode, we just animate the Mesh local Y rotation
+        // But the whole mesh is rotated by Z.
+        // We'll reset local Y to PI (Forward)
+        this.mesh.rotation.y = Math.PI; 
     }
 
     updateClimb(dt) {
@@ -397,9 +447,12 @@ export class Character {
         this.position.lerpVectors(this.climbStartPos, this.climbTargetPos, ease);
         this.mesh.position.copy(this.position);
         
-        // Rotation Lerp (Quick turn)
-        const rotT = Math.min(this.climbTime / 0.15, 1.0); 
-        this.mesh.rotation.y = this.climbStartRot + (this.climbTargetRot - this.climbStartRot) * rotT;
+        // Keep the Z-rotation alignment during climb
+        // We can approximate by keeping current angle or interpolating angle if we had target angle
+        // For simplicity, just update the mesh Z rotation based on current pos
+        const angle = Math.atan2(this.position.x, -this.position.y); // Approx angle from pos
+        this.mesh.rotation.set(0, 0, -angle);
+        this.mesh.rotateY(Math.PI);
         
         this.animateClimb(t);
 
@@ -408,9 +461,15 @@ export class Character {
             this.isGrounded = true;
             this.jumpCount = 0;
             this.position.copy(this.climbTargetPos);
-            // Sync targetX so we don't drift back immediately
-            this.targetX = this.position.x;
-            this.mesh.rotation.y = Math.PI; // Reset to face forward
+            
+            // Sync state vars
+            if (this.targetHeightAfterClimb !== undefined) {
+                this.height = this.targetHeightAfterClimb;
+                this.targetHeightAfterClimb = undefined;
+            }
+            // Angle should be correct from Z position update? No, angle needs to match position
+            this.angle = Math.atan2(this.position.x, -this.position.y);
+            this.targetAngle = this.angle;
         }
     }
 
